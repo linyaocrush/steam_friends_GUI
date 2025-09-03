@@ -38,6 +38,8 @@
    python main.py
    ```
 
+##或者你可以选择去releases下载最新版本
+
 ## 🔧 配置说明
 
 ### 获取Steam API Key
@@ -168,7 +170,6 @@ steam_friends_GUI/
 
 如有问题或建议，欢迎通过以下方式联系：
 - 提交 [GitHub Issue](https://github.com/your-username/steam-friends-gui/issues)
-- 发送邮件至：your-email@example.com
 
 ---
 
