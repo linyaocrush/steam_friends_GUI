@@ -100,14 +100,14 @@ class SteamFriendsFixedGUI:
     def read_friends_data(self):
         """读取好友数据"""
         try:
-            with open('friends_data.csv', 'r', encoding='utf-8', newline='') as f:
+            with open('friends_data.csv', 'r', encoding='utf-8-sig', newline='') as f:
                 return list(csv.DictReader(f))
         except: return []
 
     def save_friends_data(self, data):
         """保存好友数据"""
         if not data: return
-        with open('friends_data.csv', 'w', encoding='utf-8', newline='') as f:
+        with open('friends_data.csv', 'w', encoding='utf-8-sig', newline='') as f:
             writer = csv.DictWriter(f, fieldnames=data[0].keys())
             writer.writeheader()
             writer.writerows(data)
@@ -201,6 +201,7 @@ class SteamFriendsApp:
             bgcolor=ft.Colors.with_opacity(0.2, ft.Colors.BLUE_100)
         )
         self.status_text = ft.Text("就绪", size=14, weight=ft.FontWeight.W_500)
+        self.sort_ascending = True
         self.sort_indicator = ft.Icon(ft.Icons.ARROW_UPWARD, size=16)
 
         # 创建数据表格（等分布局）
