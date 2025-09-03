@@ -178,66 +178,150 @@ class SteamFriendsApp:
 
     def create_ui_components(self):
         """创建UI组件"""
+        # 设置页面主题与背景
+        self.page.theme = ft.Theme(color_scheme_seed=ft.Colors.BLUE, use_material3=True)
+        self.page.bgcolor = ft.Colors.with_opacity(0.1, ft.Colors.BLUE_GREY_50)
+
+        # 创建输入框
         def create_text_field(label, hint, value_key, password=False):
             return ft.TextField(
                 label=label, hint_text=hint, password=password,
-                value=self.settings.get(value_key, ''), width=300
+                value=self.settings.get(value_key, ''), width=280, dense=True,
+                border_radius=10, filled=True, bgcolor=ft.Colors.WHITE,
+                border_color=ft.Colors.BLUE_200
             )
 
         self.api_key_input = create_text_field("Steam Web API Key", "输入你的Steam Web API密钥", 'api_key', True)
         self.steam_id_input = create_text_field("Steam ID", "输入你的Steam ID", 'steam_id')
         self.proxy_input = create_text_field("代理地址 (可选)", "http://127.0.0.1:7890", 'proxy')
 
-        self.progress_bar = ft.ProgressBar(width=400, visible=False)
-        self.status_text = ft.Text("就绪", size=14)
+        self.progress_bar = ft.ProgressBar(
+            width=400, visible=False,
+            color=ft.Colors.BLUE_500,
+            bgcolor=ft.Colors.with_opacity(0.2, ft.Colors.BLUE_100)
+        )
+        self.status_text = ft.Text("就绪", size=14, weight=ft.FontWeight.W_500)
         self.sort_indicator = ft.Icon(ft.Icons.ARROW_UPWARD, size=16)
-        
+
+        # 创建数据表格（等分布局）
         self.data_table = ft.DataTable(
             columns=[
-                ft.DataColumn(ft.Text("头像"), numeric=True),
-                ft.DataColumn(ft.Text("昵称"), tooltip="好友昵称"),
-                ft.DataColumn(ft.Text("Steam ID"), tooltip="Steam 64位ID"),
-                ft.DataColumn(ft.Text("状态"), numeric=True, tooltip="好友状态"),
+                ft.DataColumn(ft.Text("头像", weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_700), numeric=True),
+                ft.DataColumn(ft.Text("昵称", weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_700)),
+                ft.DataColumn(ft.Text("Steam ID", weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_700)),
+                ft.DataColumn(ft.Text("状态", weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_700), numeric=True),
                 ft.DataColumn(
-                    ft.Row([ft.Text("成为好友时间"), self.sort_indicator], spacing=5),
+                    ft.Row([ft.Text("成为好友时间", weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_700), self.sort_indicator], spacing=5),
                     tooltip="点击排序", on_sort=lambda e: self._toggle_sort()
                 ),
-                ft.DataColumn(ft.Text("删除时间"), tooltip="被删除的时间"),
-                ft.DataColumn(ft.Text("备注"), tooltip="备注信息"),
+                ft.DataColumn(ft.Text("删除时间", weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_700)),
+                ft.DataColumn(ft.Text("备注", weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_700)),
             ],
             rows=[], expand=True, column_spacing=20,
-            data_row_min_height=50, data_row_max_height=80
+            data_row_min_height=50, data_row_max_height=80,
+            border_radius=10,
+            border=ft.border.all(1, ft.Colors.BLUE_200),
+            bgcolor=ft.Colors.WHITE,
+            data_row_color={ft.ControlState.HOVERED: ft.Colors.with_opacity(0.1, ft.Colors.BLUE_100)},
+            heading_row_color=ft.Colors.with_opacity(0.2, ft.Colors.BLUE_100),
+            horizontal_lines=ft.border.BorderSide(1, ft.Colors.BLUE_50),
+            vertical_lines=ft.border.BorderSide(1, ft.Colors.BLUE_50)
         )
 
         self.scroll_view = ft.Column([self.data_table], scroll=ft.ScrollMode.AUTO, 
                                    expand=True, horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
 
-        button = lambda text, handler: ft.ElevatedButton(text=text, on_click=handler, width=150)
-        self.update_button = button("更新好友列表", self.update_friends)
-        self.delete_button = button("删除非好友记录", self.delete_non_friends)
-        self.save_settings_button = button("保存设置", self.save_current_settings)
-        self.refresh_avatar_button = button("刷新头像", self.refresh_avatars)
+        # 创建按钮（带样式）
+        def create_button(text, handler, color=ft.Colors.BLUE_500):
+            return ft.ElevatedButton(
+                text=text, on_click=handler, width=150,
+                style=ft.ButtonStyle(
+                    bgcolor=color, color=ft.Colors.WHITE,
+                    shape=ft.RoundedRectangleBorder(radius=8), elevation=2
+                )
+            )
+
+        self.update_button = create_button("更新好友列表", self.update_friends)
+        self.delete_button = create_button("删除非好友记录", self.delete_non_friends, ft.Colors.RED_500)
+        self.save_settings_button = create_button("保存设置", self.save_current_settings, ft.Colors.GREEN_500)
+        self.refresh_avatar_button = create_button("刷新头像", self.refresh_avatars)
         self.refresh_avatar_button.visible = False
 
         # 创建帮助链接
-        api_help = ft.TextButton("获取Steam API Key", on_click=lambda e: self.open_url("https://steamcommunity.com/dev/apikey"))
-        steamid_help = ft.TextButton("查找Steam ID", on_click=lambda e: self.open_url("https://steamid.io/"))
+        api_help = ft.TextButton(
+            "获取Steam API Key",
+            on_click=lambda e: self.open_url("https://steamcommunity.com/dev/apikey"),
+            style=ft.ButtonStyle(color=ft.Colors.BLUE_600)
+        )
+        steamid_help = ft.TextButton(
+            "查找Steam ID",
+            on_click=lambda e: self.open_url("https://steamid.io/"),
+            style=ft.ButtonStyle(color=ft.Colors.BLUE_600)
+        )
 
-        # 布局
-        self.page.add(ft.Column([
-            ft.Text("Steam好友管理工具", size=24, weight=ft.FontWeight.BOLD),
-            ft.Row([
-                ft.Column([self.api_key_input, self.steam_id_input, self.proxy_input, ft.Row([api_help, steamid_help], spacing=10)], spacing=10),
-                ft.Column([self.save_settings_button], alignment=ft.MainAxisAlignment.END)
-            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-            ft.Row([self.update_button, self.delete_button, self.refresh_avatar_button], 
-                   alignment=ft.MainAxisAlignment.CENTER, spacing=20),
-            ft.Row([self.status_text], alignment=ft.MainAxisAlignment.CENTER),
-            self.progress_bar,
-            ft.Container(self.scroll_view, expand=True, border=ft.border.all(1, ft.Colors.GREY_400), 
-                        border_radius=10, padding=10, margin=ft.margin.symmetric(horizontal=10))
-        ], expand=True, spacing=20, horizontal_alignment=ft.CrossAxisAlignment.STRETCH))
+        # 主容器（渐变背景）
+        main_container = ft.Container(
+            content=ft.Column([
+                # 标题区域（蓝色渐变）
+                ft.Container(
+                    content=ft.Text(
+                        "Steam好友管理工具", size=28, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE, font_family="PingFang SC"
+                    ),
+                    padding=20, alignment=ft.alignment.center,
+                    gradient=ft.LinearGradient(
+                        begin=ft.alignment.top_center, end=ft.alignment.bottom_center,
+                        colors=[ft.Colors.BLUE_600, ft.Colors.with_opacity(0.8, ft.Colors.BLUE_400)]
+                    ),
+                    border_radius=ft.border_radius.only(top_left=10, top_right=10)
+                ),
+                # 输入区域
+                ft.Container(
+                    content=ft.Column([
+                        ft.Row([api_help, steamid_help], spacing=10, alignment=ft.MainAxisAlignment.CENTER),
+                        ft.Row([
+                            self.api_key_input, self.steam_id_input, self.proxy_input
+                        ], spacing=15, alignment=ft.MainAxisAlignment.CENTER),
+                        ft.Row([
+                            self.update_button, self.delete_button, self.refresh_avatar_button, self.save_settings_button
+                        ], spacing=15, alignment=ft.MainAxisAlignment.CENTER),
+                        self.progress_bar,
+                        ft.Container(content=self.status_text, alignment=ft.alignment.center, padding=5)
+                    ], spacing=15),
+                    padding=20, bgcolor=ft.Colors.WHITE,
+                    border_radius=ft.border_radius.only(bottom_left=10, bottom_right=10)
+                ),
+                # 数据表格区域
+                ft.Container(
+                    content=ft.Column([self.scroll_view], expand=True),
+                    expand=True, margin=ft.margin.only(top=10), padding=10,
+                    bgcolor=ft.Colors.WHITE, border_radius=10,
+                    border=ft.border.all(1, ft.Colors.BLUE_100)
+                )
+            ], spacing=0),
+            margin=20, border_radius=10,
+            shadow=ft.BoxShadow(
+                spread_radius=1, blur_radius=10,
+                color=ft.Colors.with_opacity(0.2, ft.Colors.BLUE_GREY_200),
+                offset=ft.Offset(0, 2)
+            )
+        )
 
+        # 页面背景（蓝白渐变）
+        gradient_bg = ft.Container(
+            content=main_container,
+            expand=True,
+            gradient=ft.LinearGradient(
+                begin=ft.alignment.top_left, end=ft.alignment.bottom_right,
+                colors=[
+                    ft.Colors.BLUE_50,
+                    ft.Colors.with_opacity(0.7, ft.Colors.BLUE_100),
+                    ft.Colors.with_opacity(0.5, ft.Colors.BLUE_50),
+                    ft.Colors.with_opacity(0.3, ft.Colors.WHITE)
+                ]
+            )
+        )
+
+        self.page.add(gradient_bg)
         self.page.on_resize = lambda e: self.settings.update({
             'window_width': self.page.window_width, 'window_height': self.page.window_height
         })
@@ -306,6 +390,18 @@ class SteamFriendsApp:
             self.status_text.value = f"更新备注失败: {str(e)}"
             self.page.update()
 
+    def _open_steam_profile(self, steamid):
+        """打开Steam个人主页"""
+        try:
+            import webbrowser
+            profile_url = f"https://steamcommunity.com/profiles/{steamid}"
+            webbrowser.open(profile_url)
+            self.status_text.value = f"正在打开Steam个人主页..."
+            self.page.update()
+        except Exception as e:
+            self.status_text.value = f"打开个人主页失败: {str(e)}"
+            self.page.update()
+
     def _update_data_table(self):
         """更新数据表格"""
         self.data_table.rows.clear()
@@ -319,27 +415,84 @@ class SteamFriendsApp:
         except: pass
         
         for item in data:
+            # 头像 - 居中显示
             avatar = ft.Container(
-                content=ft.Image(src=item['avatar'], width=32, height=32, fit=ft.ImageFit.COVER, border_radius=16),
-                width=32, height=32, border_radius=16, clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-                bgcolor=ft.Colors.GREY_200
+                content=ft.Image(
+                    src=item['avatar'], 
+                    width=36, 
+                    height=36, 
+                    fit=ft.ImageFit.COVER, 
+                    border_radius=18
+                ),
+                width=40, 
+                height=40, 
+                border_radius=20, 
+                clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                bgcolor=ft.Colors.BLUE_50,
+                alignment=ft.alignment.center
             )
             
+            # 昵称 - 加粗显示并居中
+            name_text = ft.Text(
+                item['name'], 
+                weight=ft.FontWeight.W_500,
+                size=14,
+                text_align=ft.TextAlign.CENTER,
+                width=120
+            )
+            
+            # Steam ID - 超链接
+            steam_id_text = ft.TextButton(
+                text=item['steamid'], 
+                style=ft.ButtonStyle(
+                    color=ft.Colors.BLUE_600,
+                    text_style=ft.TextStyle(
+                        font_family="monospace",
+                        size=12,
+                        decoration=ft.TextDecoration.UNDERLINE
+                    )
+                ),
+                on_click=lambda e, sid=item['steamid']: self._open_steam_profile(sid)
+            )
+            
+            # 好友状态 - 文本显示并居中
+            status_text = ft.Text(
+                item['is_friend'], 
+                size=12,
+                weight=ft.FontWeight.W_500,
+                text_align=ft.TextAlign.CENTER,
+                width=60
+            )
+            
+            # 时间显示 - 格式化并居中
+            bfd_text = ft.Text(item['bfd'], size=12, text_align=ft.TextAlign.CENTER, width=120) if item['bfd'] else ft.Text("-", size=12, text_align=ft.TextAlign.CENTER, width=120)
+            removed_text = ft.Text(item['removed_time'], size=12, text_align=ft.TextAlign.CENTER, width=120) if item['removed_time'] else ft.Text("-", size=12, text_align=ft.TextAlign.CENTER, width=120)
+            
+            # 备注 - 美化输入框
             remark = ft.TextField(
-                value=item['remark'] or '', width=180, height=30, dense=True,
-                border=ft.InputBorder.NONE, filled=True, text_size=12, hint_text="添加备注...",
-                bgcolor=ft.Colors.with_opacity(0.1, ft.Colors.GREY_300),
-                content_padding=ft.padding.only(left=8, right=8, top=5, bottom=5),
+                value=item['remark'] or '', 
+                width=200, 
+                height=32, 
+                dense=True,
+                border=ft.InputBorder.UNDERLINE,
+                filled=True,
+                text_size=12,
+                hint_text="点击添加备注...",
+                bgcolor=ft.Colors.with_opacity(0.05, ft.Colors.BLUE_50),
+                content_padding=ft.padding.only(left=8, right=8, top=8, bottom=4),
+                border_color=ft.Colors.BLUE_200,
+                focused_border_color=ft.Colors.BLUE_500,
+                cursor_color=ft.Colors.BLUE_500,
                 on_change=lambda e, sid=item['steamid']: self._update_remark(sid, e.control.value)
             )
             
             self.data_table.rows.append(ft.DataRow([
                 ft.DataCell(avatar),
-                ft.DataCell(ft.Text(item['name'])),
-                ft.DataCell(ft.Text(item['steamid'])),
-                ft.DataCell(ft.Text(item['is_friend'])),
-                ft.DataCell(ft.Text(item['bfd'])),
-                ft.DataCell(ft.Text(item['removed_time'])),
+                ft.DataCell(name_text),
+                ft.DataCell(steam_id_text),
+                ft.DataCell(status_text),
+                ft.DataCell(bfd_text),
+                ft.DataCell(removed_text),
                 ft.DataCell(remark)
             ]))
         
