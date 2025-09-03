@@ -38,7 +38,7 @@
    python main.py
    ```
 
-##或者你可以选择去releases下载最新版本
+## 或者你可以选择去releases下载最新版本
 
 ## 🔧 配置说明
 
