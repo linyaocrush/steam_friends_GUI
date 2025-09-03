@@ -30,7 +30,7 @@
 
 2. **安装依赖**
    ```bash
-   pip install flet requests
+   pip install -r requirements.txt
    ```
 
 3. **运行程序**
