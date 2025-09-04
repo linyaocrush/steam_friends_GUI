@@ -203,6 +203,10 @@ class SteamFriendsFixedGUI:
                 user_info = data['response']['players'][0]
                 # 获取游戏数量
                 user_info['game_count'] = self.get_user_game_count(steamid64)
+                # 获取封禁信息
+                user_info['ban_info'] = self.get_user_ban_info(steamid64)
+                # 获取最近游戏信息
+                user_info['recent_game'] = self.get_recent_most_played_game(steamid64)
                 return user_info
             else:
                 raise Exception("未找到用户信息")
@@ -238,6 +242,77 @@ class SteamFriendsFixedGUI:
         except Exception as e:
             print(f"获取游戏数量失败: {e}")
             return 0
+    
+    def get_user_ban_info(self, steamid64):
+        """获取用户封禁信息"""
+        url = f"{self.base_url}/ISteamUser/GetPlayerBans/v0001/"
+        params = {
+            'key': self.steam_web_api,
+            'steamids': steamid64
+        }
+        
+        try:
+            response = self._make_request(url, params)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if 'players' in data and len(data['players']) > 0:
+                    ban_info = data['players'][0]
+                    return {
+                        'VACBanned': ban_info.get('VACBanned', False),
+                        'NumberOfVACBans': ban_info.get('NumberOfVACBans', 0),
+                        'DaysSinceLastBan': ban_info.get('DaysSinceLastBan', 0),
+                        'NumberOfGameBans': ban_info.get('NumberOfGameBans', 0),
+                        'CommunityBanned': ban_info.get('CommunityBanned', False),
+                        'EconomyBan': ban_info.get('EconomyBan', 'none')
+                    }
+                else:
+                    return None
+            else:
+                # 如果获取封禁信息失败，返回None
+                return None
+        except Exception as e:
+            print(f"获取封禁信息失败: {e}")
+            return None
+    
+    def get_recent_most_played_game(self, steamid64):
+        """获取两周内玩的最多的游戏"""
+        url = f"{self.base_url}/IPlayerService/GetRecentlyPlayedGames/v0001/"
+        params = {
+            'key': self.steam_web_api,
+            'steamid': steamid64
+        }
+        
+        try:
+            response = self._make_request(url, params)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if 'response' in data:
+                    games = data['response'].get('games', [])
+                    
+                    if not games:
+                        return None  # 最近2周没有游玩记录
+                    
+                    # 按两周内时长降序排序，取第一个
+                    most_played = sorted(games, key=lambda x: x.get('playtime_2weeks', 0), reverse=True)[0]
+                    
+                    return {
+                        'name': most_played.get('name', '未知游戏'),
+                        'appid': most_played.get('appid', 0),
+                        'playtime_2weeks': most_played.get('playtime_2weeks', 0),
+                        'playtime_forever': most_played.get('playtime_forever', 0),
+                        'img_icon_url': most_played.get('img_icon_url', ''),
+                        'img_logo_url': most_played.get('img_logo_url', '')
+                    }
+                else:
+                    return None
+            else:
+                # 如果获取最近游戏信息失败，返回None
+                return None
+        except Exception as e:
+            print(f"获取最近游戏信息失败: {e}")
+            return None
     
     def send_friend_request(self, steamid64):
         """发送好友申请"""
@@ -444,7 +519,7 @@ class SteamFriendsApp:
             border_radius=10,
             border=ft.border.all(1, ft.Colors.BLUE_200),
             width=700,
-            height=200
+            height=240  # 增加高度以适应新的布局结构
         )
 
         self.progress_bar = ft.ProgressBar(
@@ -1076,6 +1151,138 @@ class SteamFriendsApp:
         
         self._run_thread_task(query_task, finish_query_user)
     
+    def _create_ban_status_badge(self, ban_info):
+        """创建封禁状态标签"""
+        if not ban_info:
+            return None
+        
+        badges = []
+        
+        # VAC封禁标签
+        if ban_info.get('VACBanned', False):
+            vac_count = ban_info.get('NumberOfVACBans', 0)
+            days_since = ban_info.get('DaysSinceLastBan', 0)
+            vac_text = f"VAC封禁 {vac_count}次"
+            if days_since > 0:
+                vac_text += f" ({days_since}天前)"
+            
+            badges.append(ft.Container(
+                content=ft.Text(
+                    vac_text,
+                    size=9,
+                    color=ft.Colors.WHITE,
+                    weight=ft.FontWeight.W_500
+                ),
+                padding=ft.padding.symmetric(horizontal=4, vertical=1),
+                border_radius=6,
+                gradient=ft.LinearGradient(
+                    begin=ft.alignment.top_left,
+                    end=ft.alignment.bottom_right,
+                    colors=[ft.Colors.RED_500, ft.Colors.RED_700]
+                ),
+                margin=ft.margin.only(right=4)
+            ))
+        
+        # 游戏封禁标签
+        if ban_info.get('NumberOfGameBans', 0) > 0:
+            game_ban_count = ban_info.get('NumberOfGameBans', 0)
+            badges.append(ft.Container(
+                content=ft.Text(
+                    f"游戏封禁 {game_ban_count}次",
+                    size=9,
+                    color=ft.Colors.WHITE,
+                    weight=ft.FontWeight.W_500
+                ),
+                padding=ft.padding.symmetric(horizontal=4, vertical=1),
+                border_radius=6,
+                gradient=ft.LinearGradient(
+                    begin=ft.alignment.top_left,
+                    end=ft.alignment.bottom_right,
+                    colors=[ft.Colors.ORANGE_500, ft.Colors.ORANGE_700]
+                ),
+                margin=ft.margin.only(right=4)
+            ))
+        
+        # 社区封禁标签
+        if ban_info.get('CommunityBanned', False):
+            badges.append(ft.Container(
+                content=ft.Text(
+                    "社区封禁",
+                    size=9,
+                    color=ft.Colors.WHITE,
+                    weight=ft.FontWeight.W_500
+                ),
+                padding=ft.padding.symmetric(horizontal=4, vertical=1),
+                border_radius=6,
+                gradient=ft.LinearGradient(
+                    begin=ft.alignment.top_left,
+                    end=ft.alignment.bottom_right,
+                    colors=[ft.Colors.PURPLE_500, ft.Colors.PURPLE_700]
+                ),
+                margin=ft.margin.only(right=4)
+            ))
+        
+        # 经济限制标签
+        economy_ban = ban_info.get('EconomyBan', 'none')
+        if economy_ban != 'none':
+            badges.append(ft.Container(
+                content=ft.Text(
+                    f"经济限制: {economy_ban}",
+                    size=9,
+                    color=ft.Colors.WHITE,
+                    weight=ft.FontWeight.W_500
+                ),
+                padding=ft.padding.symmetric(horizontal=4, vertical=1),
+                border_radius=6,
+                gradient=ft.LinearGradient(
+                    begin=ft.alignment.top_left,
+                    end=ft.alignment.bottom_right,
+                    colors=[ft.Colors.GREY_600, ft.Colors.GREY_800]
+                ),
+                margin=ft.margin.only(right=4)
+            ))
+        
+        return ft.Row(badges) if badges else None
+    
+    def _create_recent_game_display(self, recent_game):
+        """创建最近游戏信息显示"""
+        if not recent_game:
+            return None
+        
+        game_name = recent_game.get('name', '未知游戏')
+        playtime_2weeks = recent_game.get('playtime_2weeks', 0)
+        playtime_forever = recent_game.get('playtime_forever', 0)
+        
+        # 将分钟转换为小时
+        hours_2weeks = playtime_2weeks / 60
+        hours_forever = playtime_forever / 60
+        
+        return ft.Container(
+            content=ft.Column([
+                ft.Text(
+                    "最近最爱游戏",
+                    size=11,
+                    weight=ft.FontWeight.W_500,
+                    color=ft.Colors.GREEN_700
+                ),
+                ft.Text(
+                    game_name,
+                    size=12,
+                    weight=ft.FontWeight.W_600,
+                    color=ft.Colors.BLACK87
+                ),
+                ft.Text(
+                    f"两周内: {hours_2weeks:.1f}小时 | 总时长: {hours_forever:.1f}小时",
+                    size=10,
+                    color=ft.Colors.GREY_600
+                )
+            ], spacing=2),
+            padding=ft.padding.all(8),
+            border_radius=8,
+            bgcolor=ft.Colors.GREEN_50,
+            border=ft.border.all(1, ft.Colors.GREEN_200)
+        )
+    
     def _update_user_info_display(self, user_info):
         """更新用户信息显示"""
         self.current_user_info = user_info
@@ -1084,6 +1291,8 @@ class SteamFriendsApp:
         user_avatar = user_info.get('avatarfull', '')
         user_profile_url = f"https://steamcommunity.com/profiles/{user_info.get('steamid', '')}"
         game_count = user_info.get('game_count', 0)
+        ban_info = user_info.get('ban_info')
+        recent_game = user_info.get('recent_game')
         
         # 处理头像URL，确保有效并下载到本地缓存
         if not user_avatar or user_avatar == '':
@@ -1099,55 +1308,166 @@ class SteamFriendsApp:
                 # 如果下载失败，使用默认头像
                 user_avatar = 'https://avatars.steamstatic.com/fef49e7fa7e1997310d705b2a6158ff8dc1cdfeb.jpg'
         
-        self.user_info_display.content = ft.Column([
-            ft.Text("用户信息", size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_700),
-            ft.Divider(),
+        # 创建正方形统计框
+        def create_square_badge(text, color, bg_color):
+            return ft.Container(
+                content=ft.Column([
+                    ft.Text(text.split()[0], size=13, weight=ft.FontWeight.BOLD, color=color),
+                    ft.Text(text.split()[1], size=11, color=color)
+                ], spacing=0, alignment=ft.MainAxisAlignment.CENTER),
+                width=65,
+                height=65,
+                bgcolor=bg_color,
+                border_radius=8,
+                alignment=ft.alignment.center,
+                padding=ft.padding.all(4)
+            )
+        
+        # 创建正方形游戏数量框
+        game_count_badge = create_square_badge(f"{game_count}\n游戏", ft.Colors.WHITE, ft.Colors.BLUE_500)
+        
+        # 创建封禁状态正方形框
+        ban_badges = []
+        if ban_info:
+            if ban_info.get('CommunityBanned', False):
+                ban_badges.append(create_square_badge("社区\n封禁", ft.Colors.WHITE, ft.Colors.RED_500))
+            if ban_info.get('VACBanned', False):
+                vac_count = ban_info.get('NumberOfVACBans', 0)
+                ban_badges.append(create_square_badge(f"VAC\n{vac_count}", ft.Colors.WHITE, ft.Colors.RED_600))
+            game_ban_count = ban_info.get('NumberOfGameBans', 0)
+            if game_ban_count > 0:
+                # 为游戏封禁创建专门的徽章，使用更小的字体
+                ban_badges.append(ft.Container(
+                    content=ft.Column([
+                        ft.Text("游戏", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                        ft.Text("封禁", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                        ft.Text(str(game_ban_count), size=12, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE)
+                    ], spacing=0, alignment=ft.MainAxisAlignment.CENTER),
+                    width=65,
+                    height=65,
+                    bgcolor=ft.Colors.ORANGE_600,
+                    border_radius=8,
+                    alignment=ft.alignment.center,
+                    padding=ft.padding.all(2)
+                ))
+        
+        # 创建最近游戏信息显示 - 右半边占满
+        recent_game_display = self._create_recent_game_display(recent_game)
+        
+        # 左侧信息区域
+        left_info = ft.Column([
             ft.Row([
                 ft.Image(
                     src=user_avatar,
-                    width=40,
-                    height=40,
-                    border_radius=20,
-                    error_content=ft.Icon(ft.Icons.PERSON, size=20, color=ft.Colors.GREY_400)
+                    width=50,
+                    height=50,
+                    border_radius=25,
+                    error_content=ft.Icon(ft.Icons.PERSON, size=25, color=ft.Colors.GREY_400)
                 ),
                 ft.Column([
-                    ft.Row([
-                        ft.Text(user_name, size=14, weight=ft.FontWeight.W_500),
-                        ft.Container(
+                    ft.Text(user_name, size=15, weight=ft.FontWeight.BOLD, color=ft.Colors.BLACK87),
+                    ft.Text(f"状态: {user_status}", size=12, color=ft.Colors.GREY_700)
+                ], spacing=2, alignment=ft.MainAxisAlignment.CENTER)
+            ], spacing=8, alignment=ft.MainAxisAlignment.START),
+            
+            # 正方形统计框区域
+            ft.Row([
+                game_count_badge,
+                *ban_badges
+            ], spacing=6, alignment=ft.MainAxisAlignment.START, wrap=True)
+        ], spacing=12, alignment=ft.MainAxisAlignment.START)
+        
+        # 优化整体布局 - 左右分栏
+        self.user_info_display.content = ft.Column([
+            # 标题区域
+            ft.Container(
+                content=ft.Row([
+                    ft.Text("用户信息", size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_700),
+                    ft.Icon(ft.Icons.INFO_OUTLINE, size=16, color=ft.Colors.BLUE_700)
+                ], spacing=8),
+                alignment=ft.alignment.center,
+                padding=ft.padding.only(bottom=8)
+            ),
+            
+            # 分隔线
+            ft.Divider(height=1, thickness=1, color=ft.Colors.BLUE_200),
+            
+            # 主要内容区域 - 左右分栏布局
+            ft.Container(
+                content=ft.Row([
+                    # 左侧：头像和统计信息
+                    ft.Container(
+                        content=left_info,
+                        width=160,
+                        alignment=ft.alignment.top_left
+                    ),
+                    
+                    # 右侧：最近游戏信息占满
+                    ft.Container(
+                        content=recent_game_display if recent_game_display else ft.Container(
                             content=ft.Text(
-                                f"{game_count} 游戏",
-                                size=10,
-                                color=ft.Colors.WHITE,
-                                weight=ft.FontWeight.W_500
+                                "暂无游戏信息", 
+                                size=12, 
+                                color=ft.Colors.GREY_600,
+                                text_align=ft.TextAlign.CENTER
                             ),
-                            padding=ft.padding.symmetric(horizontal=6, vertical=2),
-                            border_radius=8,
-                            gradient=ft.LinearGradient(
-                                begin=ft.alignment.top_left,
-                                end=ft.alignment.bottom_right,
-                                colors=[ft.Colors.BLUE_400, ft.Colors.PURPLE_400]
-                            ),
-                            margin=ft.margin.only(left=8)
-                        )
-                    ]),
-                    ft.Text(f"状态: {user_status}", size=12, color=ft.Colors.GREY_600)
-                ], spacing=5)
-            ], spacing=10),
-            ft.TextButton(
-                text="查看Steam个人主页",
-                on_click=lambda e: self.open_url(user_profile_url),
-                style=ft.ButtonStyle(color=ft.Colors.BLUE_600)
+                            alignment=ft.alignment.center
+                        ),
+                        expand=True,
+                        alignment=ft.alignment.center,
+                        padding=ft.padding.all(8),
+                        bgcolor=ft.Colors.GREY_50,
+                        border_radius=8,
+                        margin=ft.margin.only(left=8)
+                    )
+                ], spacing=8, alignment=ft.MainAxisAlignment.START),
+                padding=ft.padding.symmetric(horizontal=8, vertical=8)
+            ),
+            
+            # 底部链接区域
+            ft.Container(
+                content=ft.TextButton(
+                    text="查看Steam个人主页",
+                    on_click=lambda e: self.open_url(user_profile_url),
+                    style=ft.ButtonStyle(
+                        color=ft.Colors.BLUE_600,
+                        text_style=ft.TextStyle(size=11, weight=ft.FontWeight.W_500)
+                    )
+                ),
+                alignment=ft.alignment.center,
+                padding=ft.padding.only(top=8)
             )
-        ], spacing=10)
+        ], spacing=0, tight=True)
     
     def _reset_user_info_display(self):
         """重置用户信息显示"""
         self.current_user_info = None
         self.user_info_display.content = ft.Column([
-            ft.Text("用户信息", size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_700),
-            ft.Divider(),
-            ft.Text("请输入好友代码查询用户信息", size=14, color=ft.Colors.GREY_600)
-        ], spacing=10)
+            # 标题区域
+            ft.Container(
+                content=ft.Row([
+                    ft.Text("用户信息", size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_700),
+                    ft.Icon(ft.Icons.INFO_OUTLINE, size=16, color=ft.Colors.BLUE_700)
+                ], spacing=8),
+                alignment=ft.alignment.center,
+                padding=ft.padding.only(bottom=8)
+            ),
+            
+            # 分隔线
+            ft.Divider(height=1, thickness=1, color=ft.Colors.BLUE_200),
+            
+            # 空状态提示
+            ft.Container(
+                content=ft.Text(
+                    "请输入好友代码查询用户信息", 
+                    size=14, 
+                    color=ft.Colors.GREY_600,
+                    weight=ft.FontWeight.W_500
+                ),
+                alignment=ft.alignment.center,
+                padding=ft.padding.symmetric(vertical=20)
+            )
+        ], spacing=0, tight=True)
     
     def send_friend_request(self, e):
         """发送好友申请"""
