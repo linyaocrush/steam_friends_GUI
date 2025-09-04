@@ -143,8 +143,8 @@ class SteamFriendsFixedGUI:
                 updated.append(friend_info)
         
         # 处理已删除的好友
-        for d in data:
-            if d['steamid'] not in current and d['is_friend'] == '✅':
+        for d in data_dict.values():
+            if d['is_friend'] == '✅':
                 d.update({'is_friend': '❌', 'removed_time': d.get('removed_time') or now})
             updated.append(d)
         
