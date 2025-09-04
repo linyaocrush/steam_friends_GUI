@@ -200,7 +200,10 @@ class SteamFriendsFixedGUI:
             data = response.json()
             
             if 'response' in data and 'players' in data['response'] and len(data['response']['players']) > 0:
-                return data['response']['players'][0]
+                user_info = data['response']['players'][0]
+                # 获取游戏数量
+                user_info['game_count'] = self.get_user_game_count(steamid64)
+                return user_info
             else:
                 raise Exception("未找到用户信息")
         elif response.status_code == 401:
@@ -209,6 +212,32 @@ class SteamFriendsFixedGUI:
             raise Exception("Steam服务器内部错误")
         else:
             raise Exception(f"获取用户信息失败: HTTP {response.status_code}")
+    
+    def get_user_game_count(self, steamid64):
+        """获取用户游戏数量"""
+        url = f"{self.base_url}/IPlayerService/GetOwnedGames/v0001/"
+        params = {
+            'key': self.steam_web_api,
+            'steamid': steamid64,
+            'include_played_free_games': '1',
+            'format': 'json'
+        }
+        
+        try:
+            response = self._make_request(url, params)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if 'response' in data and 'game_count' in data['response']:
+                    return data['response']['game_count']
+                else:
+                    return 0
+            else:
+                # 如果获取游戏数量失败，返回0
+                return 0
+        except Exception as e:
+            print(f"获取游戏数量失败: {e}")
+            return 0
     
     def send_friend_request(self, steamid64):
         """发送好友申请"""
@@ -1054,6 +1083,7 @@ class SteamFriendsApp:
         user_status = "在线" if user_info.get('personastate', 0) > 0 else "离线"
         user_avatar = user_info.get('avatarfull', '')
         user_profile_url = f"https://steamcommunity.com/profiles/{user_info.get('steamid', '')}"
+        game_count = user_info.get('game_count', 0)
         
         # 处理头像URL，确保有效并下载到本地缓存
         if not user_avatar or user_avatar == '':
@@ -1081,7 +1111,25 @@ class SteamFriendsApp:
                     error_content=ft.Icon(ft.Icons.PERSON, size=20, color=ft.Colors.GREY_400)
                 ),
                 ft.Column([
-                    ft.Text(user_name, size=14, weight=ft.FontWeight.W_500),
+                    ft.Row([
+                        ft.Text(user_name, size=14, weight=ft.FontWeight.W_500),
+                        ft.Container(
+                            content=ft.Text(
+                                f"{game_count} 游戏",
+                                size=10,
+                                color=ft.Colors.WHITE,
+                                weight=ft.FontWeight.W_500
+                            ),
+                            padding=ft.padding.symmetric(horizontal=6, vertical=2),
+                            border_radius=8,
+                            gradient=ft.LinearGradient(
+                                begin=ft.alignment.top_left,
+                                end=ft.alignment.bottom_right,
+                                colors=[ft.Colors.BLUE_400, ft.Colors.PURPLE_400]
+                            ),
+                            margin=ft.margin.only(left=8)
+                        )
+                    ]),
                     ft.Text(f"状态: {user_status}", size=12, color=ft.Colors.GREY_600)
                 ], spacing=5)
             ], spacing=10),
