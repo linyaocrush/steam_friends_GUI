@@ -43,9 +43,11 @@ class SteamFriendsFixedGUI:
         self.friends_list = {}
         self.friend_data = []
         
+        self.base_url = 'https://api.steampowered.com'
         self.urls = {
             'friends': 'https://api.steampowered.com/ISteamUser/GetFriendList/v0001/',
-            'summaries': 'https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/'
+            'summaries': 'https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/',
+            'remove_friend': 'https://api.steampowered.com/ISteamUser/RemoveFriend/v1/'
         }
         
         self.sess = requests.Session()
@@ -159,11 +161,150 @@ class SteamFriendsFixedGUI:
         self.save_friends_data(current)
         return current
 
+    def remove_friend(self, friend_steamid):
+        """删除好友"""
+        response = self.sess.post(self.urls['remove_friend'], params={
+            'key': self.steam_web_api,
+            'steamid': self.steam_id,
+            'friendid': friend_steamid
+        })
+        
+        if response.status_code == 200:
+            return True
+        elif response.status_code == 401:
+            raise Exception("Unauthorized，请检查你的steam隐私设置")
+        elif response.status_code == 403:
+            raise Exception("403 Forbidden，请检查你的web_api和id的值")
+        elif response.status_code == 500:
+            raise Exception("服务器内部错误，请检查你的steamid的值")
+        else:
+            raise Exception(f"删除好友失败，状态码：{response.status_code}")
+    
+    def get_user_info(self, friend_code):
+        """通过好友代码获取用户信息"""
+        # 将好友代码转换为SteamID64
+        steamid64 = self._friend_code_to_steamid(friend_code)
+        
+        if not steamid64:
+            raise Exception("无效的好友代码")
+        
+        url = f"{self.base_url}/ISteamUser/GetPlayerSummaries/v2/"
+        params = {
+            'key': self.steam_web_api,
+            'steamids': steamid64
+        }
+        
+        response = self._make_request(url, params)
+        
+        if response.status_code == 200:
+            data = response.json()
+            
+            if 'response' in data and 'players' in data['response'] and len(data['response']['players']) > 0:
+                return data['response']['players'][0]
+            else:
+                raise Exception("未找到用户信息")
+        elif response.status_code == 401:
+            raise Exception("API密钥无效或已过期")
+        elif response.status_code == 500:
+            raise Exception("Steam服务器内部错误")
+        else:
+            raise Exception(f"获取用户信息失败: HTTP {response.status_code}")
+    
+    def send_friend_request(self, steamid64):
+        """发送好友申请"""
+        url = f"{self.base_url}/ISteamUser/AddFriend/v1/"
+        params = {
+            'key': self.steam_web_api,
+            'steamid': self.steam_id,
+            'friendid': steamid64
+        }
+        
+        response = self._make_request(url, params)
+        if response.status_code == 200:
+            return True
+        elif response.status_code == 401:
+            raise Exception("API密钥无效或已过期")
+        elif response.status_code == 403:
+            raise Exception("权限不足，无法发送好友申请")
+        elif response.status_code == 500:
+            raise Exception("Steam服务器内部错误")
+        else:
+            raise Exception(f"发送好友申请失败: HTTP {response.status_code}")
+    
+    def _make_request(self, url, params):
+        """发送HTTP请求"""
+        return self.sess.get(url, params=params)
+    
+    def _friend_code_to_steamid(self, friend_code):
+        """将好友代码转换为SteamID64"""
+        try:
+            # 移除可能的格式字符
+            friend_code = friend_code.strip().replace('-', '').replace(' ', '')
+            
+            # 检查是否是数字格式（直接是SteamID64）
+            if friend_code.isdigit() and len(friend_code) == 17:
+                return friend_code
+            
+            # 检查是否是SteamID格式（STEAM_0:0:12345678）
+            if friend_code.startswith('STEAM_'):
+                parts = friend_code.split(':')
+                if len(parts) == 3:
+                    y = int(parts[1])
+                    z = int(parts[2])
+                    steamid64 = str(76561197960265728 + (z * 2) + y)
+                    return steamid64
+            
+            # 检查是否是纯数字（可能是SteamID32或其他格式）
+            if friend_code.isdigit():
+                # 尝试将数字转换为SteamID64
+                # SteamID64 = 76561197960265728 + SteamID32
+                steamid32 = int(friend_code)
+                steamid64 = str(76561197960265728 + steamid32)
+                return steamid64
+            
+            # 检查是否是好友代码格式（FCABC-DEF-GHI）
+            if len(friend_code) >= 8 and friend_code.isalnum():
+                # Steam好友代码转换算法
+                try:
+                    # 如果是17位数字，直接返回
+                    if len(friend_code) == 17:
+                        return friend_code
+                    
+                    # 尝试解析为Steam好友代码
+                    # Steam好友代码使用Base58编码
+                    
+                    # Base58字符集
+                    base58_chars = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+                    
+                    # 反转字符串以便计算
+                    friend_code_reversed = friend_code[::-1]
+                    
+                    # Base58解码
+                    code_num = 0
+                    for i, char in enumerate(friend_code_reversed):
+                        if char in base58_chars:
+                            code_num += base58_chars.index(char) * (58 ** i)
+                        else:
+                            return None
+                    
+                    # 转换为SteamID64
+                    # SteamID64 = 76561197960265728 + code_num
+                    steamid64 = str(76561197960265728 + code_num)
+                    return steamid64
+                    
+                except Exception as e:
+                    return None
+            
+            return None
+        except Exception as e:
+            return None
+
 
 class SteamFriendsApp:
     def __init__(self):
         self.steam_friends, self.settings_manager = SteamFriendsFixedGUI(), SettingsManager()
         self.settings, self.page = self.settings_manager.load_settings(), None
+        self.selected_friends = {}  # 存储选中的好友
 
     def main(self, page: ft.Page):
         self.page = page
@@ -194,6 +335,31 @@ class SteamFriendsApp:
         self.api_key_input = create_text_field("Steam Web API Key", "输入你的Steam Web API密钥", 'api_key', True)
         self.steam_id_input = create_text_field("Steam ID", "输入你的Steam ID", 'steam_id')
         self.proxy_input = create_text_field("代理地址 (可选)", "http://127.0.0.1:7890", 'proxy')
+        
+        # 好友功能组件
+        self.friend_code_input = create_text_field("好友代码", "输入Steam好友代码或ID", 'friend_code')
+        self.user_info_display = ft.Container(
+            content=ft.Column([
+                ft.Container(
+                    content=ft.Row([
+                        ft.Text("用户信息", size=14, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_700),
+                        ft.Icon(ft.Icons.INFO_OUTLINE, size=16, color=ft.Colors.BLUE_700)
+                    ], spacing=8),
+                    alignment=ft.alignment.center
+                ),
+                ft.Divider(height=1, thickness=1, color=ft.Colors.BLUE_200),
+                ft.Container(
+                    content=ft.Text("请输入好友代码查询用户信息", size=12, color=ft.Colors.GREY_600),
+                    alignment=ft.alignment.center
+                )
+            ], spacing=8),
+            padding=ft.padding.symmetric(horizontal=15, vertical=12),
+            bgcolor=ft.Colors.with_opacity(0.05, ft.Colors.BLUE_50),
+            border_radius=10,
+            border=ft.border.all(1, ft.Colors.BLUE_200),
+            width=400,
+            height=100
+        )
 
         self.progress_bar = ft.ProgressBar(
             width=400, visible=False,
@@ -207,6 +373,7 @@ class SteamFriendsApp:
         # 创建数据表格（等分布局）
         self.data_table = ft.DataTable(
             columns=[
+                ft.DataColumn(ft.Checkbox()),
                 ft.DataColumn(ft.Text("头像", weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_700), numeric=True),
                 ft.DataColumn(ft.Text("昵称", weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_700)),
                 ft.DataColumn(ft.Text("Steam ID", weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_700)),
@@ -233,20 +400,34 @@ class SteamFriendsApp:
                                    expand=True, horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
 
         # 创建按钮（带样式）
-        def create_button(text, handler, color=ft.Colors.BLUE_500):
+        def create_button(text, handler, color=ft.Colors.BLUE_500, width=150):
             return ft.ElevatedButton(
-                text=text, on_click=handler, width=150,
+                text=text, on_click=handler, width=width, height=40,
                 style=ft.ButtonStyle(
                     bgcolor=color, color=ft.Colors.WHITE,
-                    shape=ft.RoundedRectangleBorder(radius=8), elevation=2
+                    shape=ft.RoundedRectangleBorder(radius=8), elevation=2,
+                    padding=ft.padding.symmetric(horizontal=10, vertical=8)
                 )
             )
 
         self.update_button = create_button("更新好友列表", self.update_friends)
         self.delete_button = create_button("删除非好友记录", self.delete_non_friends, ft.Colors.RED_500)
+        self.remove_friend_button = create_button("删除选中好友", self.remove_selected_friends, ft.Colors.RED_700)
         self.save_settings_button = create_button("保存设置", self.save_current_settings, ft.Colors.GREEN_500)
         self.refresh_avatar_button = create_button("刷新头像", self.refresh_avatars)
         self.refresh_avatar_button.visible = False
+        
+        # 好友功能按钮
+        self.query_user_button = create_button("查询用户", self.query_user_info, ft.Colors.PURPLE_500, 130)
+        self.add_friend_button = create_button("添加好友", self.send_friend_request, ft.Colors.GREEN_600, 130)
+        self.add_friend_button.disabled = True  # 初始状态禁用
+        
+        # 全选复选框
+        self.select_all_checkbox = ft.Checkbox(
+            label="全选",
+            on_change=self._toggle_select_all,
+            active_color=ft.Colors.BLUE_500
+        )
 
         # 创建帮助链接
         api_help = ft.TextButton(
@@ -283,8 +464,61 @@ class SteamFriendsApp:
                             self.api_key_input, self.steam_id_input, self.proxy_input
                         ], spacing=15, alignment=ft.MainAxisAlignment.CENTER),
                         ft.Row([
-                            self.update_button, self.delete_button, self.refresh_avatar_button, self.save_settings_button
+                            self.update_button, self.delete_button, self.remove_friend_button, 
+                            self.refresh_avatar_button, self.save_settings_button
                         ], spacing=15, alignment=ft.MainAxisAlignment.CENTER),
+                        ft.Row([self.select_all_checkbox], alignment=ft.MainAxisAlignment.CENTER),
+                        # 好友功能区域（可折叠）
+                        ft.Divider(),
+                        ft.Container(
+                            content=ft.ExpansionPanelList(
+                                controls=[
+                                    ft.ExpansionPanel(
+                                        header=ft.Container(
+                                            content=ft.Row([
+                                                ft.Text("添加好友", size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_700),
+                                                ft.Icon(ft.Icons.PERSON_ADD, size=20, color=ft.Colors.BLUE_700)
+                                            ], spacing=10),
+                                            padding=ft.padding.symmetric(horizontal=15, vertical=10)
+                                        ),
+                                        content=ft.Container(
+                                            content=ft.Column([
+                                                # 好友代码输入区域
+                                                ft.Container(
+                                                    content=self.friend_code_input,
+                                                    width=400,
+                                                    alignment=ft.alignment.center
+                                                ),
+                                                # 用户信息显示区域
+                                                ft.Container(
+                                                    content=self.user_info_display,
+                                                    width=400,
+                                                    alignment=ft.alignment.center
+                                                ),
+                                                # 按钮区域
+                                                ft.Container(
+                                                    content=ft.Row([
+                                                        self.query_user_button,
+                                                        ft.Container(width=20),  # 间距
+                                                        self.add_friend_button
+                                                    ], alignment=ft.MainAxisAlignment.CENTER),
+                                                    alignment=ft.alignment.center,
+                                                    padding=ft.padding.only(top=10)
+                                                )
+                                            ], spacing=20),
+                                            padding=ft.padding.symmetric(horizontal=20, vertical=15)
+                                        )
+                                    )
+                                ],
+                                expand=False,  # 默认折叠
+                                divider_color=ft.Colors.BLUE_200,
+                                spacing=0
+                            ),
+                            bgcolor=ft.Colors.with_opacity(0.05, ft.Colors.BLUE_50),
+                            border_radius=12,
+                            border=ft.border.all(1, ft.Colors.BLUE_200),
+                            margin=ft.margin.symmetric(vertical=5)
+                        ),
                         self.progress_bar,
                         ft.Container(content=self.status_text, alignment=ft.alignment.center, padding=5)
                     ], spacing=15),
@@ -403,6 +637,28 @@ class SteamFriendsApp:
             self.status_text.value = f"打开个人主页失败: {str(e)}"
             self.page.update()
 
+    def _toggle_friend_selection(self, steamid, is_selected):
+        """切换好友选择状态"""
+        self.selected_friends[steamid] = is_selected
+        # 更新全选复选框状态
+        data = self.steam_friends.read_friends_data()
+        if data:
+            all_selected = all(self.selected_friends.get(item['steamid'], False) for item in data)
+            self.select_all_checkbox.value = all_selected
+            self.page.update()
+
+    def _toggle_select_all(self, e):
+        """切换全选状态"""
+        data = self.steam_friends.read_friends_data()
+        if not data: return
+        
+        is_selected = e.control.value
+        for item in data:
+            self.selected_friends[item['steamid']] = is_selected
+        
+        # 重新渲染数据表格以更新复选框状态
+        self._update_data_table()
+
     def _update_data_table(self):
         """更新数据表格"""
         self.data_table.rows.clear()
@@ -416,6 +672,12 @@ class SteamFriendsApp:
         except: pass
         
         for item in data:
+            # 选择复选框
+            select_checkbox = ft.Checkbox(
+                value=self.selected_friends.get(item['steamid'], False),
+                on_change=lambda e, sid=item['steamid']: self._toggle_friend_selection(sid, e.control.value)
+            )
+            
             # 头像 - 居中显示
             avatar = ft.Container(
                 content=ft.Image(
@@ -488,6 +750,7 @@ class SteamFriendsApp:
             )
             
             self.data_table.rows.append(ft.DataRow([
+                ft.DataCell(select_checkbox),
                 ft.DataCell(avatar),
                 ft.DataCell(name_text),
                 ft.DataCell(steam_id_text),
@@ -563,6 +826,103 @@ class SteamFriendsApp:
             self._update_data_table()
         self.page.update()
 
+    def remove_selected_friends(self, e):
+        """删除选中的好友"""
+        # 获取选中的好友
+        selected_steamids = [steamid for steamid, is_selected in self.selected_friends.items() if is_selected]
+        
+        if not selected_steamids:
+            self.status_text.value = "请先选择要删除的好友"
+            return self.page.update()
+        
+        # 确认删除
+        def confirm_delete(e):
+            if e.control.text == "确定":
+                # 禁用按钮并显示进度
+                for btn in [self.update_button, self.delete_button, self.remove_friend_button, self.refresh_avatar_button]:
+                    btn.disabled = True
+                self.progress_bar.visible = True
+                self.status_text.value = f"正在删除 {len(selected_steamids)} 个好友..."
+                self.page.update()
+                
+                def delete_task():
+                    try:
+                        self.steam_friends.steam_web_api = self.api_key_input.value
+                        self.steam_friends.steam_id = self.steam_id_input.value
+                        self.steam_friends.set_proxy(self.proxy_input.value)
+                        
+                        success_count = 0
+                        failed_friends = []
+                        
+                        for steamid in selected_steamids:
+                            try:
+                                if self.steam_friends.remove_friend(steamid):
+                                    success_count += 1
+                                else:
+                                    failed_friends.append(steamid)
+                            except Exception as error:
+                                failed_friends.append(f"{steamid} ({str(error)})")
+                        
+                        # 更新本地数据
+                        if success_count > 0:
+                            data = self.steam_friends.read_friends_data()
+                            now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                            
+                            for item in data:
+                                if item['steamid'] in selected_steamids and item['is_friend'] == '✅':
+                                    item['is_friend'] = '❌'
+                                    item['removed_time'] = now
+                            
+                            self.steam_friends.save_friends_data(data)
+                        
+                        # 清空选择
+                        self.selected_friends.clear()
+                        
+                        if failed_friends:
+                            message = f"成功删除 {success_count} 个好友，失败 {len(failed_friends)} 个：{', '.join(failed_friends[:3])}{'...' if len(failed_friends) > 3 else ''}"
+                        else:
+                            message = f"成功删除 {success_count} 个好友"
+                        
+                        self.page.run_thread(lambda: self._finish_remove_friend(True, message))
+                    except Exception as e:
+                        self.page.run_thread(lambda: self._finish_remove_friend(False, f"删除好友失败: {e}"))
+                
+                threading.Thread(target=delete_task, daemon=True).start()
+            
+            # 关闭对话框
+            self.page.dialog.open = False
+            self.page.update()
+        
+        # 取消删除
+        def cancel_delete(e):
+            self.page.dialog.open = False
+            self.page.update()
+        
+        # 显示确认对话框
+        dialog = ft.AlertDialog(
+            title=ft.Text("确认删除"),
+            content=ft.Text(f"确定要删除选中的 {len(selected_steamids)} 个好友吗？此操作不可撤销。"),
+            actions=[
+                ft.TextButton("确定", on_click=confirm_delete),
+                ft.TextButton("取消", on_click=cancel_delete)
+            ],
+            actions_alignment=ft.MainAxisAlignment.END
+        )
+        
+        self.page.dialog = dialog
+        dialog.open = True
+        self.page.update()
+
+    def _finish_remove_friend(self, success, message):
+        """完成删除好友后的UI处理"""
+        for btn in [self.update_button, self.delete_button, self.remove_friend_button, self.refresh_avatar_button]:
+            btn.disabled = False
+        self.progress_bar.visible = False
+        self.status_text.value = message
+        if success:
+            self._update_data_table()
+        self.page.update()
+
     def refresh_avatars(self, e):
         """刷新头像"""
         self.refresh_avatar_button.disabled = True
@@ -599,6 +959,169 @@ class SteamFriendsApp:
         self.progress_bar.visible = False
         self.status_text.value = message
         if success: self._update_data_table()
+        self.page.update()
+    
+    def query_user_info(self, e):
+        """查询用户信息"""
+        if not all([self.api_key_input.value, self.steam_id_input.value]):
+            self.status_text.value = "请填写API Key和Steam ID"
+            return self.page.update()
+        
+        if not self.friend_code_input.value:
+            self.status_text.value = "请输入好友代码"
+            return self.page.update()
+        
+        # 禁用按钮并显示进度
+        self.query_user_button.disabled = True
+        self.progress_bar.visible = True
+        self.status_text.value = "正在查询用户信息..."
+        self.page.update()
+        
+        def query_task():
+            try:
+                self.steam_friends.steam_web_api = self.api_key_input.value
+                self.steam_friends.steam_id = self.steam_id_input.value
+                self.steam_friends.set_proxy(self.proxy_input.value)
+                
+                user_info = self.steam_friends.get_user_info(self.friend_code_input.value)
+                self.page.run_thread(lambda: self._finish_query_user(True, "查询成功", user_info))
+            except Exception as ex:
+                error_msg = str(ex)
+                self.page.run_thread(lambda: self._finish_query_user(False, f"查询失败: {error_msg}", None))
+        
+        threading.Thread(target=query_task, daemon=True).start()
+    
+    def _finish_query_user(self, success, message, user_info):
+        """完成查询用户信息后的UI处理"""
+        self.query_user_button.disabled = False
+        self.progress_bar.visible = False
+        self.status_text.value = message
+        
+        if success and user_info:
+            self.current_user_info = user_info
+            # 更新用户信息显示
+            user_name = user_info.get('personaname', '未知用户')
+            user_status = "在线" if user_info.get('personastate', 0) > 0 else "离线"
+            user_avatar = user_info.get('avatarfull', '')
+            user_profile_url = f"https://steamcommunity.com/profiles/{user_info.get('steamid', '')}"
+            
+            # 处理头像URL，确保有效并下载到本地缓存
+            if not user_avatar or user_avatar == '':
+                user_avatar = 'https://avatars.steamstatic.com/fef49e7fa7e1997310d705b2a6158ff8dc1cdfeb.jpg'  # 默认头像
+            
+            # 下载头像到本地缓存
+            steamid = user_info.get('steamid', '')
+            if steamid:
+                try:
+                    user_avatar = self.steam_friends.download_avatar(user_avatar, steamid)
+                except Exception as e:
+                    print(f"下载头像失败: {e}")
+                    # 如果下载失败，使用默认头像
+                    user_avatar = 'https://avatars.steamstatic.com/fef49e7fa7e1997310d705b2a6158ff8dc1cdfeb.jpg'
+            
+            self.user_info_display.content = ft.Column([
+                ft.Text("用户信息", size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_700),
+                ft.Divider(),
+                ft.Row([
+                    ft.Image(
+                        src=user_avatar,
+                        width=40,
+                        height=40,
+                        border_radius=20,
+                        error_content=ft.Icon(ft.Icons.PERSON, size=20, color=ft.Colors.GREY_400)
+                    ),
+                    ft.Column([
+                        ft.Text(user_name, size=14, weight=ft.FontWeight.W_500),
+                        ft.Text(f"状态: {user_status}", size=12, color=ft.Colors.GREY_600)
+                    ], spacing=5)
+                ], spacing=10),
+                ft.TextButton(
+                    text="查看Steam个人主页",
+                    on_click=lambda e: self.open_url(user_profile_url),
+                    style=ft.ButtonStyle(color=ft.Colors.BLUE_600)
+                )
+            ], spacing=10)
+            
+            # 启用添加好友按钮
+            self.add_friend_button.disabled = False
+        else:
+            # 重置用户信息显示
+            self.user_info_display.content = ft.Column([
+                ft.Text("用户信息", size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_700),
+                ft.Divider(),
+                ft.Text("请输入好友代码查询用户信息", size=14, color=ft.Colors.GREY_600)
+            ], spacing=10)
+            self.add_friend_button.disabled = True
+            self.current_user_info = None
+        
+        self.page.update()
+    
+    def send_friend_request(self, e):
+        """发送好友申请"""
+        if not self.current_user_info:
+            self.status_text.value = "请先查询用户信息"
+            return self.page.update()
+        
+        # 确认发送好友申请
+        def confirm_send(e):
+            if e.control.text == "确定":
+                # 禁用按钮并显示进度
+                self.add_friend_button.disabled = True
+                self.query_user_button.disabled = True
+                self.progress_bar.visible = True
+                self.status_text.value = "正在发送好友申请..."
+                self.page.update()
+                
+                def send_task():
+                    try:
+                        self.steam_friends.steam_web_api = self.api_key_input.value
+                        self.steam_friends.steam_id = self.steam_id_input.value
+                        self.steam_friends.set_proxy(self.proxy_input.value)
+                        
+                        steamid64 = self.current_user_info.get('steamid')
+                        success = self.steam_friends.send_friend_request(steamid64)
+                        
+                        if success:
+                            self.page.run_thread(lambda: self._finish_send_friend(True, "好友申请发送成功"))
+                        else:
+                            self.page.run_thread(lambda: self._finish_send_friend(False, "发送好友申请失败"))
+                    except Exception as ex:
+                        error_msg = str(ex)
+                        self.page.run_thread(lambda: self._finish_send_friend(False, f"发送好友申请失败: {error_msg}"))
+                
+                threading.Thread(target=send_task, daemon=True).start()
+            
+            # 关闭对话框
+            self.page.dialog.open = False
+            self.page.update()
+        
+        # 取消发送
+        def cancel_send(e):
+            self.page.dialog.open = False
+            self.page.update()
+        
+        # 显示确认对话框
+        user_name = self.current_user_info.get('personaname', '未知用户')
+        dialog = ft.AlertDialog(
+            title=ft.Text("确认发送好友申请"),
+            content=ft.Text(f"确定要向 {user_name} 发送好友申请吗？"),
+            actions=[
+                ft.TextButton("确定", on_click=confirm_send),
+                ft.TextButton("取消", on_click=cancel_send)
+            ],
+            actions_alignment=ft.MainAxisAlignment.END
+        )
+        
+        self.page.dialog = dialog
+        dialog.open = True
+        self.page.update()
+    
+    def _finish_send_friend(self, success, message):
+        """完成发送好友申请后的UI处理"""
+        self.add_friend_button.disabled = False
+        self.query_user_button.disabled = False
+        self.progress_bar.visible = False
+        self.status_text.value = message
         self.page.update()
 
 
