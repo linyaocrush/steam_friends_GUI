@@ -305,6 +305,61 @@ class SteamFriendsApp:
         self.steam_friends, self.settings_manager = SteamFriendsFixedGUI(), SettingsManager()
         self.settings, self.page = self.settings_manager.load_settings(), None
         self.selected_friends = {}  # 存储选中的好友
+        self.current_user_info = None  # 当前查询的用户信息
+    
+    def _setup_steam_api(self):
+        """设置Steam API配置"""
+        self.steam_friends.steam_web_api = self.api_key_input.value
+        self.steam_friends.steam_id = self.steam_id_input.value
+        self.steam_friends.set_proxy(self.proxy_input.value)
+    
+    def _disable_buttons(self, buttons):
+        """禁用指定的按钮"""
+        for btn in buttons:
+            btn.disabled = True
+        self.page.update()
+    
+    def _enable_buttons(self, buttons):
+        """启用指定的按钮"""
+        for btn in buttons:
+            btn.disabled = False
+        self.page.update()
+    
+    def _show_progress(self, message="处理中..."):
+        """显示进度条和状态信息"""
+        self.progress_bar.visible = True
+        self.progress_bar.value = None
+        self.status_text.value = message
+        self.page.update()
+    
+    def _hide_progress(self):
+        """隐藏进度条"""
+        self.progress_bar.visible = False
+        self.page.update()
+    
+    def _run_thread_task(self, task_func, finish_func):
+        """运行线程任务的通用方法"""
+        def wrapper():
+            try:
+                result = task_func()
+                self.page.run_thread(lambda: finish_func(True, result))
+            except Exception as e:
+                self.page.run_thread(lambda: finish_func(False, str(e)))
+        
+        threading.Thread(target=wrapper, daemon=True).start()
+    
+    def _validate_inputs(self, *required_inputs):
+        """验证必需的输入字段"""
+        missing = []
+        for input_field in required_inputs:
+            if not input_field.value:
+                missing.append(input_field.label)
+        
+        if missing:
+            self.status_text.value = f"请填写: {', '.join(missing)}"
+            self.page.update()
+            return False
+        return True
 
     def main(self, page: ft.Page):
         self.page = page
@@ -338,6 +393,8 @@ class SteamFriendsApp:
         
         # 好友功能组件
         self.friend_code_input = create_text_field("好友代码", "输入Steam好友代码或ID", 'friend_code')
+        # 调整好友代码输入框的宽度以适应左右布局
+        self.friend_code_input.width = 260
         self.user_info_display = ft.Container(
             content=ft.Column([
                 ft.Container(
@@ -353,12 +410,12 @@ class SteamFriendsApp:
                     alignment=ft.alignment.center
                 )
             ], spacing=8),
-            padding=ft.padding.symmetric(horizontal=15, vertical=12),
+            padding=ft.padding.symmetric(horizontal=15, vertical=20),
             bgcolor=ft.Colors.with_opacity(0.05, ft.Colors.BLUE_50),
             border_radius=10,
             border=ft.border.all(1, ft.Colors.BLUE_200),
-            width=400,
-            height=100
+            width=700,
+            height=200
         )
 
         self.progress_bar = ft.ProgressBar(
@@ -483,16 +540,31 @@ class SteamFriendsApp:
                                         ),
                                         content=ft.Container(
                                             content=ft.Column([
-                                                # 好友代码输入区域
+                                                # 左右布局：添加好友输入和用户信息显示
                                                 ft.Container(
-                                                    content=self.friend_code_input,
-                                                    width=400,
-                                                    alignment=ft.alignment.center
-                                                ),
-                                                # 用户信息显示区域
-                                                ft.Container(
-                                                    content=self.user_info_display,
-                                                    width=400,
+                                                    content=ft.Row([
+                                                        # 左侧：好友代码输入区域（紧凑布局）
+                                                        ft.Container(
+                                                            content=ft.Column([
+                                                                ft.Container(
+                                                                    content=ft.Text("添加好友", size=14, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_700),
+                                                                    alignment=ft.alignment.center
+                                                                ),
+                                                                ft.Container(
+                                                                    content=self.friend_code_input,
+                                                                    width=200
+                                                                )
+                                                            ], spacing=8),
+                                                            width=220,
+                                                            alignment=ft.alignment.center
+                                                        ),
+                                                        # 右侧：用户信息显示区域（占满剩余空间）
+                                                        ft.Container(
+                                                            content=self.user_info_display,
+                                                            expand=True,
+                                                            alignment=ft.alignment.center
+                                                        )
+                                                    ], spacing=15, alignment=ft.MainAxisAlignment.START),
                                                     alignment=ft.alignment.center
                                                 ),
                                                 # 按钮区域
@@ -503,9 +575,9 @@ class SteamFriendsApp:
                                                         self.add_friend_button
                                                     ], alignment=ft.MainAxisAlignment.CENTER),
                                                     alignment=ft.alignment.center,
-                                                    padding=ft.padding.only(top=10)
+                                                    padding=ft.padding.only(top=15)
                                                 )
-                                            ], spacing=20),
+                                            ], spacing=15),
                                             padding=ft.padding.symmetric(horizontal=20, vertical=15)
                                         )
                                     )
@@ -764,67 +836,54 @@ class SteamFriendsApp:
 
     def update_friends(self, e):
         """更新好友列表"""
-        if not all([self.api_key_input.value, self.steam_id_input.value]):
-            self.status_text.value = "请填写API Key和Steam ID"
-            return self.page.update()
-
+        if not self._validate_inputs(self.api_key_input, self.steam_id_input):
+            return
+        
         # 禁用按钮并显示进度
-        for btn in [self.update_button, self.delete_button, self.refresh_avatar_button]:
-            btn.disabled = True
-        self.progress_bar.visible = True
-        self.status_text.value = "正在更新好友列表..."
-        self.page.update()
-
+        self._disable_buttons([self.update_button, self.delete_button, self.refresh_avatar_button])
+        self._show_progress("正在更新好友列表...")
+        
         def update_task():
-            try:
-                self.steam_friends.steam_web_api = self.api_key_input.value
-                self.steam_friends.steam_id = self.steam_id_input.value
-                self.steam_friends.set_proxy(self.proxy_input.value)
-                data = self.steam_friends.update_friends_list()
-                self.page.run_thread(lambda: self._finish_update(True, f"更新完成，共 {len(data)} 条记录"))
-            except Exception as e:
-                self.page.run_thread(lambda: self._finish_update(False, f"更新失败: {e}"))
+            self._setup_steam_api()
+            return self.steam_friends.update_friends_list()
+        
+        def finish_update(success, result):
+            self._enable_buttons([self.update_button, self.delete_button, self.refresh_avatar_button])
+            self._hide_progress()
+            
+            if success:
+                self.status_text.value = f"更新完成，共 {len(result)} 条记录"
+                self._update_data_table()
+                self.refresh_avatar_button.visible = True
+            else:
+                self.status_text.value = f"更新失败: {result}"
+            self.page.update()
+        
+        self._run_thread_task(update_task, finish_update)
 
-        threading.Thread(target=update_task, daemon=True).start()
 
-    def _finish_update(self, success, message):
-        """完成更新后的UI处理"""
-        for btn in [self.update_button, self.delete_button, self.refresh_avatar_button]:
-            btn.disabled = False
-        self.progress_bar.visible = False
-        self.status_text.value = message
-        if success:
-            self._update_data_table()
-            self.refresh_avatar_button.visible = True
-        self.page.update()
 
     def delete_non_friends(self, e):
         """删除非好友记录"""
         # 禁用按钮并显示进度
-        for btn in [self.update_button, self.delete_button, self.refresh_avatar_button]:
-            btn.disabled = True
-        self.progress_bar.visible = True
-        self.status_text.value = "正在删除非好友记录..."
-        self.page.update()
-
+        self._disable_buttons([self.update_button, self.delete_button, self.refresh_avatar_button])
+        self._show_progress("正在删除非好友记录...")
+        
         def delete_task():
-            try:
-                data = self.steam_friends.delete_non_friends()
-                self.page.run_thread(lambda: self._finish_delete(True, f"已删除非好友记录，剩余 {len(data)} 条记录"))
-            except Exception as e:
-                self.page.run_thread(lambda: self._finish_delete(False, f"删除失败: {e}"))
-
-        threading.Thread(target=delete_task, daemon=True).start()
-
-    def _finish_delete(self, success, message):
-        """完成删除后的UI处理"""
-        for btn in [self.update_button, self.delete_button, self.refresh_avatar_button]:
-            btn.disabled = False
-        self.progress_bar.visible = False
-        self.status_text.value = message
-        if success:
-            self._update_data_table()
-        self.page.update()
+            return self.steam_friends.delete_non_friends()
+        
+        def finish_delete(success, result):
+            self._enable_buttons([self.update_button, self.delete_button, self.refresh_avatar_button])
+            self._hide_progress()
+            
+            if success:
+                self.status_text.value = f"已删除非好友记录，剩余 {len(result)} 条记录"
+                self._update_data_table()
+            else:
+                self.status_text.value = f"删除失败: {result}"
+            self.page.update()
+        
+        self._run_thread_task(delete_task, finish_delete)
 
     def remove_selected_friends(self, e):
         """删除选中的好友"""
@@ -925,136 +984,122 @@ class SteamFriendsApp:
 
     def refresh_avatars(self, e):
         """刷新头像"""
-        self.refresh_avatar_button.disabled = True
-        self.progress_bar.visible, self.progress_bar.value = True, None
-        self.status_text.value = "正在刷新头像..."
-        self.page.update()
+        self._disable_buttons([self.refresh_avatar_button])
+        self._show_progress("正在刷新头像...")
         
-        def refresh_thread():
-            try:
-                data = self.steam_friends.read_friends_data()
-                if not data:
-                    return self.page.run_thread(lambda: self._finish_refresh(False, "没有数据需要刷新"))
-                
-                count = 0
-                for item in data:
-                    if item['steamid']:
-                        url = f"https://avatars.akamai.steamstatic.com/{item['steamid']}_full.jpg"
-                        new_path = self.steam_friends.download_avatar(url, item['steamid'])
-                        if new_path != item['avatar']:
-                            item['avatar'], count = new_path, count + 1
-                
-                if count:
-                    self.steam_friends.save_friends_data(data)
-                
-                self.page.run_thread(lambda: self._finish_refresh(True, f"已刷新 {count} 个头像"))
-            except Exception as e:
-                self.page.run_thread(lambda: self._finish_refresh(False, f"刷新失败: {e}"))
+        def refresh_task():
+            data = self.steam_friends.read_friends_data()
+            if not data:
+                return "没有数据需要刷新"
+            
+            count = 0
+            for item in data:
+                if item['steamid']:
+                    url = f"https://avatars.akamai.steamstatic.com/{item['steamid']}_full.jpg"
+                    new_path = self.steam_friends.download_avatar(url, item['steamid'])
+                    if new_path != item['avatar']:
+                        item['avatar'], count = new_path, count + 1
+            
+            if count:
+                self.steam_friends.save_friends_data(data)
+            
+            return f"已刷新 {count} 个头像"
         
-        threading.Thread(target=refresh_thread, daemon=True).start()
-    
-    def _finish_refresh(self, success, message):
-        """完成刷新后的UI处理"""
-        self.refresh_avatar_button.disabled = False
-        self.progress_bar.visible = False
-        self.status_text.value = message
-        if success: self._update_data_table()
-        self.page.update()
+        def finish_refresh(success, result):
+            self._enable_buttons([self.refresh_avatar_button])
+            self._hide_progress()
+            
+            if success:
+                self.status_text.value = result
+                self._update_data_table()
+            else:
+                self.status_text.value = f"刷新失败: {result}"
+            self.page.update()
+        
+        self._run_thread_task(refresh_task, finish_refresh)
     
     def query_user_info(self, e):
         """查询用户信息"""
-        if not all([self.api_key_input.value, self.steam_id_input.value]):
-            self.status_text.value = "请填写API Key和Steam ID"
-            return self.page.update()
-        
-        if not self.friend_code_input.value:
-            self.status_text.value = "请输入好友代码"
-            return self.page.update()
+        if not self._validate_inputs(self.api_key_input, self.steam_id_input, self.friend_code_input):
+            return
         
         # 禁用按钮并显示进度
-        self.query_user_button.disabled = True
-        self.progress_bar.visible = True
-        self.status_text.value = "正在查询用户信息..."
-        self.page.update()
+        self._disable_buttons([self.query_user_button])
+        self._show_progress("正在查询用户信息...")
         
         def query_task():
-            try:
-                self.steam_friends.steam_web_api = self.api_key_input.value
-                self.steam_friends.steam_id = self.steam_id_input.value
-                self.steam_friends.set_proxy(self.proxy_input.value)
-                
-                user_info = self.steam_friends.get_user_info(self.friend_code_input.value)
-                self.page.run_thread(lambda: self._finish_query_user(True, "查询成功", user_info))
-            except Exception as ex:
-                error_msg = str(ex)
-                self.page.run_thread(lambda: self._finish_query_user(False, f"查询失败: {error_msg}", None))
+            self._setup_steam_api()
+            return self.steam_friends.get_user_info(self.friend_code_input.value)
         
-        threading.Thread(target=query_task, daemon=True).start()
+        def finish_query_user(success, result):
+            self._enable_buttons([self.query_user_button])
+            self._hide_progress()
+            
+            if success:
+                self.status_text.value = "查询成功"
+                self._update_user_info_display(result)
+                self.add_friend_button.disabled = False
+            else:
+                self.status_text.value = f"查询失败: {result}"
+                self._reset_user_info_display()
+                self.add_friend_button.disabled = True
+            self.page.update()
+        
+        self._run_thread_task(query_task, finish_query_user)
     
-    def _finish_query_user(self, success, message, user_info):
-        """完成查询用户信息后的UI处理"""
-        self.query_user_button.disabled = False
-        self.progress_bar.visible = False
-        self.status_text.value = message
+    def _update_user_info_display(self, user_info):
+        """更新用户信息显示"""
+        self.current_user_info = user_info
+        user_name = user_info.get('personaname', '未知用户')
+        user_status = "在线" if user_info.get('personastate', 0) > 0 else "离线"
+        user_avatar = user_info.get('avatarfull', '')
+        user_profile_url = f"https://steamcommunity.com/profiles/{user_info.get('steamid', '')}"
         
-        if success and user_info:
-            self.current_user_info = user_info
-            # 更新用户信息显示
-            user_name = user_info.get('personaname', '未知用户')
-            user_status = "在线" if user_info.get('personastate', 0) > 0 else "离线"
-            user_avatar = user_info.get('avatarfull', '')
-            user_profile_url = f"https://steamcommunity.com/profiles/{user_info.get('steamid', '')}"
-            
-            # 处理头像URL，确保有效并下载到本地缓存
-            if not user_avatar or user_avatar == '':
-                user_avatar = 'https://avatars.steamstatic.com/fef49e7fa7e1997310d705b2a6158ff8dc1cdfeb.jpg'  # 默认头像
-            
-            # 下载头像到本地缓存
-            steamid = user_info.get('steamid', '')
-            if steamid:
-                try:
-                    user_avatar = self.steam_friends.download_avatar(user_avatar, steamid)
-                except Exception as e:
-                    print(f"下载头像失败: {e}")
-                    # 如果下载失败，使用默认头像
-                    user_avatar = 'https://avatars.steamstatic.com/fef49e7fa7e1997310d705b2a6158ff8dc1cdfeb.jpg'
-            
-            self.user_info_display.content = ft.Column([
-                ft.Text("用户信息", size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_700),
-                ft.Divider(),
-                ft.Row([
-                    ft.Image(
-                        src=user_avatar,
-                        width=40,
-                        height=40,
-                        border_radius=20,
-                        error_content=ft.Icon(ft.Icons.PERSON, size=20, color=ft.Colors.GREY_400)
-                    ),
-                    ft.Column([
-                        ft.Text(user_name, size=14, weight=ft.FontWeight.W_500),
-                        ft.Text(f"状态: {user_status}", size=12, color=ft.Colors.GREY_600)
-                    ], spacing=5)
-                ], spacing=10),
-                ft.TextButton(
-                    text="查看Steam个人主页",
-                    on_click=lambda e: self.open_url(user_profile_url),
-                    style=ft.ButtonStyle(color=ft.Colors.BLUE_600)
-                )
-            ], spacing=10)
-            
-            # 启用添加好友按钮
-            self.add_friend_button.disabled = False
-        else:
-            # 重置用户信息显示
-            self.user_info_display.content = ft.Column([
-                ft.Text("用户信息", size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_700),
-                ft.Divider(),
-                ft.Text("请输入好友代码查询用户信息", size=14, color=ft.Colors.GREY_600)
-            ], spacing=10)
-            self.add_friend_button.disabled = True
-            self.current_user_info = None
+        # 处理头像URL，确保有效并下载到本地缓存
+        if not user_avatar or user_avatar == '':
+            user_avatar = 'https://avatars.steamstatic.com/fef49e7fa7e1997310d705b2a6158ff8dc1cdfeb.jpg'  # 默认头像
         
-        self.page.update()
+        # 下载头像到本地缓存
+        steamid = user_info.get('steamid', '')
+        if steamid:
+            try:
+                user_avatar = self.steam_friends.download_avatar(user_avatar, steamid)
+            except Exception as e:
+                print(f"下载头像失败: {e}")
+                # 如果下载失败，使用默认头像
+                user_avatar = 'https://avatars.steamstatic.com/fef49e7fa7e1997310d705b2a6158ff8dc1cdfeb.jpg'
+        
+        self.user_info_display.content = ft.Column([
+            ft.Text("用户信息", size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_700),
+            ft.Divider(),
+            ft.Row([
+                ft.Image(
+                    src=user_avatar,
+                    width=40,
+                    height=40,
+                    border_radius=20,
+                    error_content=ft.Icon(ft.Icons.PERSON, size=20, color=ft.Colors.GREY_400)
+                ),
+                ft.Column([
+                    ft.Text(user_name, size=14, weight=ft.FontWeight.W_500),
+                    ft.Text(f"状态: {user_status}", size=12, color=ft.Colors.GREY_600)
+                ], spacing=5)
+            ], spacing=10),
+            ft.TextButton(
+                text="查看Steam个人主页",
+                on_click=lambda e: self.open_url(user_profile_url),
+                style=ft.ButtonStyle(color=ft.Colors.BLUE_600)
+            )
+        ], spacing=10)
+    
+    def _reset_user_info_display(self):
+        """重置用户信息显示"""
+        self.current_user_info = None
+        self.user_info_display.content = ft.Column([
+            ft.Text("用户信息", size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_700),
+            ft.Divider(),
+            ft.Text("请输入好友代码查询用户信息", size=14, color=ft.Colors.GREY_600)
+        ], spacing=10)
     
     def send_friend_request(self, e):
         """发送好友申请"""
@@ -1065,12 +1110,8 @@ class SteamFriendsApp:
         # 确认发送好友申请
         def confirm_send(e):
             if e.control.text == "确定":
-                # 禁用按钮并显示进度
-                self.add_friend_button.disabled = True
-                self.query_user_button.disabled = True
-                self.progress_bar.visible = True
-                self.status_text.value = "正在发送好友申请..."
-                self.page.update()
+                self._disable_buttons([self.add_friend_button, self.query_user_button])
+                self._show_progress("正在发送好友申请...")
                 
                 def send_task():
                     try:
@@ -1082,14 +1123,13 @@ class SteamFriendsApp:
                         success = self.steam_friends.send_friend_request(steamid64)
                         
                         if success:
-                            self.page.run_thread(lambda: self._finish_send_friend(True, "好友申请发送成功"))
+                            return True, "好友申请发送成功"
                         else:
-                            self.page.run_thread(lambda: self._finish_send_friend(False, "发送好友申请失败"))
+                            return False, "发送好友申请失败"
                     except Exception as ex:
-                        error_msg = str(ex)
-                        self.page.run_thread(lambda: self._finish_send_friend(False, f"发送好友申请失败: {error_msg}"))
+                        return False, f"发送好友申请失败: {str(ex)}"
                 
-                threading.Thread(target=send_task, daemon=True).start()
+                self._run_thread_task(send_task, self._finish_send_friend)
             
             # 关闭对话框
             self.page.dialog.open = False
@@ -1118,9 +1158,8 @@ class SteamFriendsApp:
     
     def _finish_send_friend(self, success, message):
         """完成发送好友申请后的UI处理"""
-        self.add_friend_button.disabled = False
-        self.query_user_button.disabled = False
-        self.progress_bar.visible = False
+        self._enable_buttons([self.add_friend_button, self.query_user_button])
+        self._hide_progress()
         self.status_text.value = message
         self.page.update()
 
